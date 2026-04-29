@@ -31,8 +31,8 @@ class Particle:
 
 class HandParticleEffect:
     def __init__(self):
-        self.screen_width = 1280
-        self.screen_height = 720
+        self.screen_width = 640
+        self.screen_height = 480
 
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
@@ -43,9 +43,9 @@ class HandParticleEffect:
             min_tracking_confidence=0.5
         )
 
-        self.cap = cv2.VideoCapture(0)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.screen_width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.screen_height)
+        self.cap = self.open_camera()
+        if self.cap is None:
+            raise Exception("无法打开摄像头")
 
         self.particles = []
         self.finger_colors = [
@@ -55,6 +55,35 @@ class HandParticleEffect:
             (0, 255, 255),
             (255, 0, 255)
         ]
+
+    def open_camera(self):
+        print("尝试打开摄像头...")
+        for index in [0, 1, -1]:
+            print(f"尝试摄像头索引: {index}")
+            cap = cv2.VideoCapture(index)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    print(f"成功打开摄像头索引 {index}")
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.screen_width)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.screen_height)
+                    return cap
+                else:
+                    cap.release()
+                    print(f"摄像头索引 {index} 打开但无法读取帧")
+        
+        print("尝试使用AVFoundation后端...")
+        cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret:
+                print("成功使用AVFoundation后端打开摄像头")
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.screen_width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.screen_height)
+                return cap
+            cap.release()
+        
+        return None
 
     def get_finger_tips(self, results):
         tips = []
@@ -71,11 +100,23 @@ class HandParticleEffect:
         print("按 'q' 键退出")
         
         try:
+            frame_count = 0
             while True:
                 ret, frame = self.cap.read()
+                
                 if not ret:
-                    print("无法读取摄像头帧")
-                    break
+                    frame_count += 1
+                    if frame_count > 5:
+                        print("连续5帧无法读取，尝试重新打开摄像头...")
+                        self.cap.release()
+                        self.cap = self.open_camera()
+                        if self.cap is None:
+                            print("无法重新打开摄像头，程序退出")
+                            break
+                        frame_count = 0
+                    continue
+                
+                frame_count = 0
 
                 frame = cv2.flip(frame, 1)
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -104,7 +145,8 @@ class HandParticleEffect:
 
                 cv2.imshow('手势粒子效果', frame)
 
-                if cv2.waitKey(1) & 0xFF == ord('q'):
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
                     break
 
         except Exception as e:
@@ -112,10 +154,14 @@ class HandParticleEffect:
             import traceback
             traceback.print_exc()
         finally:
-            self.cap.release()
+            if hasattr(self, 'cap') and self.cap is not None:
+                self.cap.release()
             cv2.destroyAllWindows()
             print("程序已退出")
 
 if __name__ == "__main__":
-    effect = HandParticleEffect()
-    effect.run()
+    try:
+        effect = HandParticleEffect()
+        effect.run()
+    except Exception as e:
+        print(f"初始化失败: {e}")
